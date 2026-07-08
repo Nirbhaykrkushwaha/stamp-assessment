@@ -76,7 +76,8 @@ def _tv_wrapper_class(preds, target, base_fn, respect_labels, iou_threshold, cla
 
 
 _preds_fn = (
-    torch.tensor([
+    torch
+    .tensor([
         [296.55, 93.96, 314.97, 152.79],
         [328.94, 97.05, 342.49, 122.98],
         [356.62, 95.47, 372.33, 147.55],
@@ -85,7 +86,8 @@ _preds_fn = (
     .repeat(4, 1, 1)
 )
 _target_fn = (
-    torch.tensor([
+    torch
+    .tensor([
         [300.00, 100.00, 315.00, 150.00],
         [330.00, 100.00, 350.00, 125.00],
         [350.00, 100.00, 375.00, 150.00],
@@ -352,6 +354,50 @@ class TestIntersectionMetrics(MetricTester):
         res = metric.compute()
         for val in res.values():
             assert val == torch.tensor(0.0)
+
+    def test_empty_preds_and_target(self, class_metric, functional_metric, reference_metric):
+        empty = {
+            "boxes": torch.empty(size=(0, 4), dtype=torch.float32),
+            "labels": torch.tensor([], dtype=torch.long),
+        }
+        pred = {
+            "boxes": torch.tensor([[0.0, 0.0, 1.0, 1.0]]),
+            "labels": torch.tensor([1]),
+            "scores": torch.tensor([0.9]),
+        }
+        target = {
+            "boxes": torch.tensor([[0.5, 0.0, 1.5, 1.0]]),  # partial overlap with ``pred`` (IoU = 1/3)
+            "labels": torch.tensor([1]),
+        }
+
+        # Baseline: a single non-empty pair with partial overlap gives a
+        # metric-specific, non-trivial value.
+        metric = class_metric()
+        metric.update([pred], [target])
+        baseline = metric.compute()
+
+        # Empty predictions for one image -> that image scores 0, halving each
+        # metric value.
+        metric = class_metric()
+        metric.update([empty, pred], [target, target])
+        res = metric.compute()
+        for key in baseline:
+            assert torch.allclose(res[key], baseline[key] / 2)
+
+        # Empty targets for one image -> same, the empty image contributes 0.
+        metric = class_metric()
+        metric.update([pred, pred], [empty, target])
+        res = metric.compute()
+        for key in baseline:
+            assert torch.allclose(res[key], baseline[key] / 2)
+
+        # Empty on BOTH sides -> no box pairs to score, so that image is
+        # excluded and the value is unchanged.
+        metric = class_metric()
+        metric.update([empty, pred], [empty, target])
+        res = metric.compute()
+        for key in baseline:
+            assert torch.allclose(res[key], baseline[key])
 
 
 def test_corner_case():

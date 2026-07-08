@@ -17,6 +17,7 @@ import torch
 from torch import Tensor
 
 from torchmetrics.detection.helpers import _fix_empty_tensors, _input_validator
+from torchmetrics.detection.utils import _extract_boxes_and_labels, _label_eq_matrix
 from torchmetrics.functional.detection.iou import _iou_compute, _iou_update
 from torchmetrics.metric import Metric
 from torchmetrics.utilities.data import dim_zero_cat
@@ -43,7 +44,7 @@ class IntersectionOverUnion(Metric):
         - labels: ``IntTensor`` of shape ``(num_boxes)`` containing 0-indexed detection classes for
           the boxes.
 
-    - ``target`` (:class:`~List`): A list consisting of dictionaries each containing the key-values
+    - ``targets`` (:class:`~List`): A list consisting of dictionaries each containing the key-values
       (each dictionary corresponds to a single image). Parameters that should be provided per dict:
 
         - ``boxes`` (:class:`~torch.Tensor`): float tensor of shape ``(num_boxes, 4)`` containing ``num_boxes`` ground
@@ -178,18 +179,18 @@ class IntersectionOverUnion(Metric):
     def _iou_compute_fn(*args: Any, **kwargs: Any) -> Tensor:
         return _iou_compute(*args, **kwargs)
 
-    def update(self, preds: List[Dict[str, Tensor]], target: List[Dict[str, Tensor]]) -> None:
+    def update(self, preds: List[Dict[str, Tensor]], targets: List[Dict[str, Tensor]]) -> None:
         """Update state with predictions and targets."""
-        _input_validator(preds, target, ignore_score=True)
+        _input_validator(preds, targets, ignore_score=True)
 
-        for p, t in zip(preds, target):
-            det_boxes = self._get_safe_item_values(p["boxes"])
-            gt_boxes = self._get_safe_item_values(t["boxes"])
-            self.groundtruth_labels.append(t["labels"])
+        for p_i, t_i in zip(preds, targets):
+            det_boxes, gt_boxes = _extract_boxes_and_labels(
+                p_i, t_i, self._get_safe_item_values, self.groundtruth_labels
+            )
 
             iou_matrix = self._iou_update_fn(det_boxes, gt_boxes, self.iou_threshold, self._invalid_val)  # N x M
             if self.respect_labels:
-                label_eq = p["labels"].unsqueeze(1) == t["labels"].unsqueeze(0)  # N x M
+                label_eq = _label_eq_matrix(det_boxes, gt_boxes, p_i["labels"], t_i["labels"], iou_matrix)
                 iou_matrix[~label_eq] = self._invalid_val
             self.iou_matrix.append(iou_matrix)
 

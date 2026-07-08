@@ -15,6 +15,7 @@ from typing import Optional
 
 import torch
 
+from torchmetrics.functional.detection.utils import _empty_iou_matrix
 from torchmetrics.utilities.imports import _TORCHVISION_AVAILABLE
 
 if not _TORCHVISION_AVAILABLE:
@@ -30,6 +31,10 @@ def _diou_update(
         raise ValueError(f"Expected target to be of shape (N, 4) but got {target.shape}")
 
     from torchvision.ops import distance_box_iou
+
+    empty_iou = _empty_iou_matrix(preds, target)
+    if empty_iou is not None:
+        return empty_iou
 
     iou = distance_box_iou(preds, target)
     if iou_threshold is not None:
